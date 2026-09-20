@@ -28,6 +28,12 @@ jobs:
       # The site is plain static files, so the only gate is that the logic
       # still passes its tests.
       - run: npm test
+      # Vendor the MediaPipe runtime and model into the deployed site (~22 MB)
+      # so the published page makes no third-party requests: it keeps working
+      # through a CDN outage, under a strict CSP, and offline via the service
+      # worker. This also writes the <meta> tag that points js/config.js at
+      # ./vendor, which is deliberately not committed.
+      - run: npm run setup
       # enablement turns Pages on via the API if it is not configured yet, so
       # a fresh clone of this repo deploys without anyone visiting Settings.
       - uses: actions/configure-pages@v5
