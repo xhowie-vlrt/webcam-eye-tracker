@@ -253,8 +253,12 @@ export class EyeTracker {
         const got = await this.overlay.runTargets(pts, {
           getSample: () => this.sample(),
         });
-        if (got.length < pts.length) return null;
-        groups.push(...got);
+        if (got.cancelled) return null;
+        // The overlay already retried each target; anything still empty means
+        // the face was not visible, which is a different problem from the user
+        // pressing Escape and deserves to be said out loud.
+        if (got.failed > 0) throw new CalibrationError(got.failed, pts.length);
+        groups.push(...got.groups);
       }
       if (mode === 'pursuit' || mode === 'both') {
         const got = await this.overlay.runPursuit({
@@ -262,8 +266,9 @@ export class EyeTracker {
           getSample: () => this.sample(),
           speed,
         });
-        if (got.length === 0) return null;
-        groups.push(...got);
+        if (got.cancelled) return null;
+        if (got.groups.length === 0) throw new CalibrationError(1, 1);
+        groups.push(...got.groups);
       }
 
       this.model.clear();
@@ -307,9 +312,10 @@ export class EyeTracker {
         label: '精度チェック',
         collectMs: 800,
       });
-      if (got.length < pts.length) return null;
+      if (got.cancelled) return null;
+      if (got.failed > 0) throw new CalibrationError(got.failed, pts.length);
 
-      const errors = got.map((g) => {
+      const errors = got.groups.map((g) => {
         let sx = 0;
         let sy = 0;
         for (const vec of g.vecs) {
@@ -406,6 +412,23 @@ function learnBlinkThreshold(ears) {
   const sorted = [...ears].sort((a, b) => a - b);
   const median = sorted[Math.floor(sorted.length / 2)];
   return clamp(median * BLINK_EAR_RATIO, BLINK_EAR_RANGE[0], BLINK_EAR_RANGE[1]);
+}
+
+/**
+ * Raised when targets produced no usable frames. Distinct from a user
+ * cancellation, which returns null - conflating the two is what made a single
+ * lost frame look like "you pressed Escape".
+ */
+export class CalibrationError extends Error {
+  constructor(failed, total) {
+    super(
+      '顔を検出できませんでした（同じ点で複数回試行）。' +
+        '照明を明るくし、カメラに顔全体が入る位置に座って、もう一度試してください。'
+    );
+    this.name = 'CalibrationError';
+    this.failed = failed;
+    this.total = total;
+  }
 }
 
 function createHiddenVideo() {

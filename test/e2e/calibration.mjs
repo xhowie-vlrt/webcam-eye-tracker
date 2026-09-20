@@ -65,6 +65,7 @@ try {
     };
 
     /** Where the virtual user is looking: the calibration dot, if one is up. */
+    globalThis.__face = face;
     globalThis.__lookAt = { x: innerWidth / 2, y: innerHeight / 2 };
     const currentTarget = () => {
       const host = document.querySelector('[data-eyetracker-overlay]');
@@ -253,6 +254,107 @@ try {
   note(!pursuit.cancelled && pursuit.groups >= 5, 'pursuit calibration produced path groups', `${pursuit.groups} groups`);
   note(pursuit.samples > 100, 'pursuit collected samples continuously', `${pursuit.samples}`);
   note(pursuit.distance < 150, 'pursuit-only model lands on a held-out point', `${pursuit.distance?.toFixed(0)} px off`);
+
+  // --- regressions for the "キャリブレーションを中止しました" report -----------
+  //
+  // A single blink during one target's collection window used to drop that
+  // point, and one dropped point made calibrate() return null, which the UI
+  // reported as a user cancellation. Two behaviours must hold now: a target
+  // that comes back empty is retried, and a face that never appears is
+  // reported as its own error rather than as a cancellation.
+  //
+  // These drive the overlay from inside the page - dispatching pointerdown
+  // directly - so the run does not depend on cross-process click timing.
+  const regressions = await page.evaluate(async () => {
+    const { EyeTracker } = await import('./js/eyetracker.js');
+
+    const makeTracker = () => {
+      const et = new EyeTracker({ smoothing: 0 });
+      et.tracker.running = true;
+      const tick = () => {
+        const dot = document
+          .querySelector('[data-eyetracker-overlay]')
+          ?.shadowRoot?.querySelector('.dot');
+        const r = dot?.getBoundingClientRect();
+        const t = r
+          ? { x: r.left + r.width / 2, y: r.top + r.height / 2 }
+          : { x: innerWidth / 2, y: innerHeight / 2 };
+        et._onFrame({
+          landmarks: globalThis.__face((t.x / innerWidth) * 2 - 1, (t.y / innerHeight) * 2 - 1, 0),
+          timestamp: performance.now(),
+        });
+        et.__raf = requestAnimationFrame(tick);
+      };
+      et.__raf = requestAnimationFrame(tick);
+      return et;
+    };
+
+    /** Confirm whatever target the overlay shows, until `settled` flips. */
+    const drive = (settled, limitMs = 25000) =>
+      new Promise((resolve) => {
+        const until = performance.now() + limitMs;
+        let clicks = 0;
+        const timer = setInterval(() => {
+          if (settled.value || performance.now() > until) {
+            clearInterval(timer);
+            return resolve(clicks);
+          }
+          const dot = document
+            .querySelector('[data-eyetracker-overlay]')
+            ?.shadowRoot?.querySelector('.dot');
+          if (dot && !dot.classList.contains('collecting')) {
+            dot.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true }));
+            clicks++;
+          }
+        }, 60);
+      });
+
+    const run = async (et, sampleStub) => {
+      const settled = { value: false };
+      const real = et.sample.bind(et);
+      et.sample = () => sampleStub(real);
+      const outcome = et
+        .calibrate({ mode: 'click' })
+        .then((r) => (r === null ? { cancelled: true } : { groups: r.groups }))
+        .catch((err) => ({ errorName: err.name, errorMessage: err.message }))
+        .finally(() => {
+          settled.value = true;
+        });
+      const clicks = await drive(settled);
+      const result = await outcome;
+      cancelAnimationFrame(et.__raf);
+      return { ...result, clicks };
+    };
+
+    // Case 1: unusable frames for the first 3 s, so the opening attempts at
+    // the first target collect nothing.
+    const blindUntil = performance.now() + 3000;
+    const retried = await run(makeTracker(), (real) =>
+      performance.now() < blindUntil ? null : real()
+    );
+
+    // Case 2: the face never appears at all.
+    const neverSeen = await run(makeTracker(), () => null);
+
+    return { retried, neverSeen };
+  });
+
+  const { retried, neverSeen } = regressions;
+  note(
+    retried.groups === 9,
+    'a target that collects nothing is retried instead of aborting the run',
+    JSON.stringify(retried).slice(0, 140)
+  );
+  note(
+    neverSeen.errorName === 'CalibrationError',
+    'a face that never appears is reported as its own error, not a cancellation',
+    JSON.stringify(neverSeen).slice(0, 140)
+  );
+  note(
+    neverSeen.clicks <= 8,
+    'and it gives up on the first target rather than marching through all nine',
+    `${neverSeen.clicks} confirmations`
+  );
 
   note(pageErrors.length === 0, 'no uncaught page errors', pageErrors[0] ?? '');
 } catch (err) {

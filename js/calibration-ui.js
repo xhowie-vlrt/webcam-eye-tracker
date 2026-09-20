@@ -11,6 +11,13 @@
 //             sample taken at time t is paired with where the dot was at
 //             t - lagMs, not where it is now.
 
+const COLLECT_MS = 900;
+const SETTLE_MS = 250;
+/** No usable frame for this long means the face is lost, not just blinking. */
+const SIGNAL_LOST_MS = 700;
+/** A target that yields nothing is retried rather than quietly dropped. */
+const MAX_ATTEMPTS = 3;
+
 const STYLE = `
 :host { all: initial; }
 .root {
@@ -24,6 +31,9 @@ const STYLE = `
         font-size: 12px; opacity: .55; }
 .bar  { position: absolute; bottom: 0; left: 0; height: 3px; background: #5ac8fa;
         width: 0; transition: width 120ms linear; }
+.warn { position: absolute; top: calc(8vh + 2.4em); left: 0; right: 0; text-align: center;
+        color: #fbbf24; font-size: 13px; opacity: 0; transition: opacity 200ms; }
+.warn.show { opacity: 1; }
 .dot {
   position: absolute; top: 0; left: 0; width: 28px; height: 28px;
   margin: -14px 0 0 -14px; border-radius: 50%;
@@ -56,6 +66,7 @@ export class CalibrationOverlay {
       <style>${STYLE}</style>
       <div class="root" part="root">
         <p class="hint"></p>
+        <p class="warn"></p>
         <div class="dot"></div>
         <p class="sub">Esc で中止</p>
         <div class="bar"></div>
@@ -63,6 +74,7 @@ export class CalibrationOverlay {
     this.el = {
       root: shadow.querySelector('.root'),
       hint: shadow.querySelector('.hint'),
+      warn: shadow.querySelector('.warn'),
       dot: shadow.querySelector('.dot'),
       sub: shadow.querySelector('.sub'),
       bar: shadow.querySelector('.bar'),
@@ -73,13 +85,36 @@ export class CalibrationOverlay {
     };
     this.doc.addEventListener('keydown', this._onKey, true);
     this.cancelled = false;
+    this._watchSignal();
   }
 
   unmount() {
     if (!this.host) return;
     this.doc.removeEventListener('keydown', this._onKey, true);
+    cancelAnimationFrame(this._watchHandle);
     this.host.remove();
     this.host = null;
+  }
+
+  /**
+   * The overlay blacks out the whole screen, including the camera preview, so
+   * without this the user has no way to tell a lost face from a stuck app -
+   * they just click and nothing happens.
+   */
+  _watchSignal() {
+    let lastSeen = performance.now();
+    const step = () => {
+      if (!this.host) return;
+      if (this.getSample?.()) lastSeen = performance.now();
+      const lost = performance.now() - lastSeen > SIGNAL_LOST_MS;
+      this.el.warn.classList.toggle('show', lost);
+      if (lost && !this.el.warn.textContent) {
+        this.el.warn.textContent =
+          '顔を検出できていません — 明るい方を向き、カメラに顔全体が入るようにしてください';
+      }
+      this._watchHandle = requestAnimationFrame(step);
+    };
+    this._watchHandle = requestAnimationFrame(step);
   }
 
   cancel() {
@@ -101,32 +136,51 @@ export class CalibrationOverlay {
    * @param {() => (number[]|null)} opts.getSample
    * @returns {Promise<Array<{x:number,y:number,vecs:number[][]}>>}
    */
-  async runTargets(points, { getSample, label = 'キャリブレーション', collectMs = 900, settleMs = 250 } = {}) {
+  async runTargets(points, { getSample, label = 'キャリブレーション', collectMs = COLLECT_MS, settleMs = SETTLE_MS } = {}) {
+    this.getSample = getSample;
     this.mount();
-    const out = [];
+    const groups = [];
+    let failed = 0;
     try {
       for (let i = 0; i < points.length; i++) {
         if (this.cancelled) break;
         const p = points[i];
-        this.el.hint.textContent =
-          `${label} ${i + 1} / ${points.length} — 点を見つめたままクリック（Space でも可）`;
         this.el.dot.classList.remove('collecting');
         this._setDot(p.x, p.y, i > 0);
         this._progress(i / points.length);
 
-        await this._waitForClick();
-        if (this.cancelled) break;
+        let vecs = [];
+        for (let attempt = 0; attempt < MAX_ATTEMPTS && vecs.length === 0; attempt++) {
+          this.el.hint.textContent =
+            `${label} ${i + 1} / ${points.length} — 点を見つめたままクリック（Space でも可）` +
+            (attempt > 0 ? `　※この点をもう一度（${attempt + 1}/${MAX_ATTEMPTS}）` : '');
 
-        this.el.dot.classList.add('collecting');
-        await this._sleep(settleMs); // let the saccade land before recording
-        const vecs = await this._collectFor(collectMs, getSample);
-        if (vecs.length) out.push({ x: p.x, y: p.y, vecs });
+          await this._waitForClick();
+          if (this.cancelled) break;
+
+          this.el.dot.classList.add('collecting');
+          await this._sleep(settleMs); // let the saccade land before recording
+          vecs = await this._collectFor(collectMs, getSample);
+          // A single blink across the collection window used to drop the point
+          // silently, and one dropped point aborted the whole run. Retry it.
+          if (vecs.length === 0) this.el.dot.classList.remove('collecting');
+        }
+
+        if (vecs.length) {
+          groups.push({ x: p.x, y: p.y, vecs });
+        } else if (!this.cancelled) {
+          // Every attempt at this target came back empty. Marching on through
+          // the remaining points would make the user click another twenty-odd
+          // times before being told the camera cannot see them.
+          failed++;
+          break;
+        }
       }
       this._progress(1);
     } finally {
       this.unmount();
     }
-    return this.cancelled ? [] : out;
+    return { cancelled: this.cancelled, groups: this.cancelled ? [] : groups, failed };
   }
 
   /**
@@ -141,6 +195,7 @@ export class CalibrationOverlay {
     label = 'スムースパスート キャリブレーション',
     settleMs = 700,
   }) {
+    this.getSample = getSample;
     this.mount();
     this.el.hint.textContent = `${label} — 動く点を目で追ってください`;
     this.el.dot.classList.add('collecting');
@@ -153,7 +208,7 @@ export class CalibrationOverlay {
 
     try {
       await this._sleep(settleMs);
-      if (this.cancelled) return [];
+      if (this.cancelled) return { cancelled: true, groups: [], failed: 0 };
 
       const started = performance.now();
       await new Promise((resolve) => {
@@ -183,7 +238,7 @@ export class CalibrationOverlay {
       this.unmount();
     }
 
-    if (this.cancelled) return [];
+    if (this.cancelled) return { cancelled: true, groups: [], failed: 0 };
 
     // Group by path segment so cross-validation holds out whole stretches of
     // the path rather than interleaved, near-identical frames.
@@ -192,14 +247,18 @@ export class CalibrationOverlay {
       if (!groups.has(s.segment)) groups.set(s.segment, []);
       groups.get(s.segment).push(s);
     }
-    return [...groups.values()]
-      .filter((g) => g.length >= 5)
-      .map((g) => ({
-        x: g.reduce((a, s) => a + s.x, 0) / g.length,
-        y: g.reduce((a, s) => a + s.y, 0) / g.length,
-        vecs: g.map((s) => s.vec),
-        samples: g,
-      }));
+    return {
+      cancelled: false,
+      failed: 0,
+      groups: [...groups.values()]
+        .filter((g) => g.length >= 5)
+        .map((g) => ({
+          x: g.reduce((a, s) => a + s.x, 0) / g.length,
+          y: g.reduce((a, s) => a + s.y, 0) / g.length,
+          vecs: g.map((s) => s.vec),
+          samples: g,
+        })),
+    };
   }
 
   _waitForClick() {

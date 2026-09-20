@@ -121,9 +121,6 @@ body {
   backdrop-filter: blur(8px);
 }
 
-body.calibrating .panel,
-body.calibrating .topbar { display: none; }
-
 /* ---------- camera preview ---------- */
 
 .preview {
