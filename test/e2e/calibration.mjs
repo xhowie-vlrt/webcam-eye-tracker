@@ -107,21 +107,27 @@ try {
   ).catch((err) => ({ error: err.message, groups: 0, samples: 0, cv: null, lambda: null }));
 
   const dot = page.locator('[data-eyetracker-overlay] .dot');
-  for (let i = 0; i < 9; i++) {
-    await dot.waitFor({ state: 'visible', timeout: 15000 });
-    // The dot is marked while it records; wait for it to go idle again.
-    await page.waitForFunction(() => !collectingNow(), null, { timeout: 15000, polling: 50 });
-    if (i % 3 === 2) {
-      // Space confirms too, for users without a pointing device.
-      await page.keyboard.press('Space');
-    } else {
-      // No force: the dot glides to its next position with a CSS transition,
-      // and clicking mid-transition lands on empty overlay. Let Playwright
-      // wait for the element to be stable first.
-      await dot.click({ timeout: 15000 });
+
+  /** Walk the overlay's targets, confirming each one as a user would. */
+  const confirmTargets = async (count, keyboardEvery = 3) => {
+    for (let i = 0; i < count; i++) {
+      await dot.waitFor({ state: 'visible', timeout: 15000 });
+      // The dot is marked while it records; wait for it to go idle again.
+      await page.waitForFunction(() => !collectingNow(), null, { timeout: 15000, polling: 50 });
+      if (i % keyboardEvery === keyboardEvery - 1) {
+        // Space confirms too, for users without a pointing device.
+        await page.keyboard.press('Space');
+      } else {
+        // No force: the dot glides to its next position with a CSS transition,
+        // and clicking mid-transition lands on empty overlay. Let Playwright
+        // wait for the element to be stable first.
+        await dot.click({ timeout: 15000 });
+      }
+      await page.waitForFunction(() => collectingNow(), null, { timeout: 15000, polling: 50 });
     }
-    await page.waitForFunction(() => collectingNow(), null, { timeout: 15000, polling: 50 });
-  }
+  };
+
+  await confirmTargets(9);
 
   const report = await calibration;
   note(report.groups === 9, 'all nine targets were recorded (6 clicked, 3 via Space)', `${report.groups} groups`);
@@ -161,6 +167,62 @@ try {
     live.blinkThreshold > 0.1 && live.blinkThreshold <= 0.25,
     'a per-user blink threshold was learned',
     live.blinkThreshold?.toFixed(3)
+  );
+
+  // The accuracy check walks its own set of targets, none of which the model
+  // was trained on, and reports an error vector per point.
+  const validation = page
+    .evaluate(() => globalThis.__et.validate())
+    .catch((err) => ({ error: err.message }));
+  await confirmTargets(9);
+  const acc = await validation;
+
+  note(!acc?.error && acc !== null, 'the accuracy check completed', acc?.error ?? '');
+  note(acc?.points?.length === 9, 'it reported one error vector per target', `${acc?.points?.length}`);
+  note(
+    acc?.points?.every((p) => Number.isFinite(p.predictedX) && Number.isFinite(p.predictedY)),
+    'each point carries where the model actually looked'
+  );
+  note(acc?.mean < 100, 'the virtual user validates accurately', `${acc?.mean?.toFixed(0)} px, ${acc?.degrees?.toFixed(2)}°`);
+
+  // The demo UI paints those vectors over the page; capture it.
+  await page.evaluate((points) => {
+    globalThis.__validationPoints = points;
+  }, acc?.points ?? []);
+  await page.evaluate(async () => {
+    const { ScanPath } = await import('./js/scanpath.js');
+    const sp = new ScanPath(document.getElementById('scanpath'));
+    sp.showValidation(globalThis.__validationPoints);
+  });
+  await page.screenshot({ path: 'test/e2e/screenshot-validation.png' });
+  note(true, 'validation overlay rendered');
+
+  // The heatmap accumulates into a buffer capped below screen resolution and
+  // scales it up on draw; check that path actually paints something.
+  const heat = await page.evaluate(async () => {
+    const { Heatmap } = await import('./js/heatmap.js');
+    const canvas = document.getElementById('heatmap');
+    const h = new Heatmap(canvas);
+    for (let i = 0; i < 300; i++) {
+      h.add(600 + Math.sin(i / 9) * 120, 400 + Math.cos(i / 7) * 90);
+    }
+    h.render();
+    const ctx = canvas.getContext('2d');
+    const { data } = ctx.getImageData(0, 0, canvas.width, canvas.height);
+    let painted = 0;
+    for (let i = 3; i < data.length; i += 4) if (data[i] > 0) painted++;
+    return {
+      painted,
+      bufferEdge: Math.max(h.buffer.width, h.buffer.height),
+      canvasEdge: Math.max(canvas.width, canvas.height),
+      scale: h.scale,
+    };
+  });
+  note(heat.painted > 1000, 'the heatmap paints pixels', `${heat.painted} px`);
+  note(
+    heat.bufferEdge <= 960,
+    'its buffer stays capped regardless of viewport size',
+    `buffer ${heat.bufferEdge} vs canvas ${heat.canvasEdge}`
   );
 
   // Smooth pursuit needs no clicks: the virtual user simply keeps looking at

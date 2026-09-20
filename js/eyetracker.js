@@ -288,7 +288,8 @@ export class EyeTracker {
 
   /**
    * Measure accuracy on targets the model was never trained on.
-   * @returns {Promise<null|{mean:number, p95:number, max:number, degrees:number, points:Array}>}
+   * @returns {Promise<null|{mean:number, p95:number, max:number, degrees:number,
+   *   points:Array<{x,y,predictedX,predictedY,error}>}>}
    */
   async validate({ points = null } = {}) {
     if (!this.model.ready) throw new Error('calibrate before validating');
@@ -311,10 +312,14 @@ export class EyeTracker {
           sx += p.x;
           sy += p.y;
         }
+        const px = sx / g.vecs.length;
+        const py = sy / g.vecs.length;
         return {
           x: g.x,
           y: g.y,
-          error: Math.hypot(sx / g.vecs.length - g.x, sy / g.vecs.length - g.y),
+          predictedX: px,
+          predictedY: py,
+          error: Math.hypot(px - g.x, py - g.y),
         };
       });
       const sorted = errors.map((e) => e.error).sort((a, b) => a - b);

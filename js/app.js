@@ -178,6 +178,9 @@ el.btnValidate.addEventListener('click', async () => {
       return;
     }
     el.statValidation.textContent = fmt(r.mean);
+    // Draw the error vectors over the page: a consistent direction means the
+    // posture shifted, scatter means noise. Far more actionable than a mean.
+    scanpath.showValidation(r.points);
     setStatus(
       `平均 ${fmt(r.mean)}、最大 ${r.max.toFixed(0)} px — ` +
         (r.degrees < 1.5
