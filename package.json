@@ -9,7 +9,7 @@
     "setup": "node tools/fetch-assets.mjs",
     "setup:revert": "node tools/fetch-assets.mjs --revert",
     "test": "node --test test/*.test.js",
-    "test:e2e": "node test/e2e/smoke.mjs"
+    "test:e2e": "node test/e2e/smoke.mjs && node test/e2e/calibration.mjs"
   },
   "license": "MIT"
 }
