@@ -25,7 +25,7 @@ export function validationPoints({ width, height } = {}) {
   return [
     [0.2, 0.2],
     [0.8, 0.22],
-    [0.5, 0.5],
+    [0.42, 0.58],
     [0.22, 0.8],
     [0.78, 0.78],
     [0.5, 0.15],

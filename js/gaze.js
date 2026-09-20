@@ -183,16 +183,19 @@ export class GazeModel {
       } catch {
         return Infinity; // this lambda cannot be solved for; never pick it
       }
-      // Score the averaged prediction per group: that is how the tracker is
-      // used, and it keeps per-frame noise out of the model selection.
-      let sx = 0;
-      let sy = 0;
+      // Score the *mean residual* of the group, not the mean prediction
+      // against one target: a pursuit group is a stretch of path where every
+      // sample has its own target, so held[0] is not the group's position.
+      // Averaging the residual keeps per-frame noise out of model selection
+      // while staying correct for both discrete and moving targets.
+      let ex = 0;
+      let ey = 0;
       for (const s of held) {
         const p = ridgePredict(model, s.vec);
-        sx += p[0];
-        sy += p[1];
+        ex += p[0] - s.x;
+        ey += p[1] - s.y;
       }
-      total += Math.hypot(sx / held.length - held[0].x, sy / held.length - held[0].y);
+      total += Math.hypot(ex / held.length, ey / held.length);
       count++;
     }
     return count === 0 ? Infinity : total / count;

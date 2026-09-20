@@ -26,12 +26,15 @@ test('a single-column grid centres horizontally', () => {
 });
 
 test('validation points avoid the calibration grid nodes', () => {
-  const grid = gridPoints(3, 3, SIZE);
-  for (const v of validationPoints(SIZE)) {
-    const nearest = Math.min(...grid.map((g) => Math.hypot(g.x - v.x, g.y - v.y)));
-    // The centre is deliberately shared; everything else must be off-node.
-    if (v.x === 500 && v.y === 400) continue;
-    assert.ok(nearest > 40, `validation point ${v.x},${v.y} sits on a grid node`);
+  for (const cols of [3, 4]) {
+    const grid = gridPoints(cols, cols, SIZE);
+    for (const v of validationPoints(SIZE)) {
+      const nearest = Math.min(...grid.map((g) => Math.hypot(g.x - v.x, g.y - v.y)));
+      assert.ok(
+        nearest > 40,
+        `validation point ${v.x},${v.y} sits on a ${cols}x${cols} grid node`
+      );
+    }
   }
 });
 

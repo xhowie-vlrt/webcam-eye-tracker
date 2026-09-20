@@ -185,3 +185,46 @@ test('fitting refuses to run on a handful of samples', () => {
   for (let i = 0; i < 5; i++) m.addSample(sample({ x: 100, y: 100 }, rand, 0), 100, 100);
   assert.throws(() => m.fit(), /at least 20 samples/);
 });
+
+test('cross-validation handles pursuit groups, where each sample has its own target', () => {
+  // A pursuit group is a stretch of path, not a single point. Scoring it
+  // against one representative target would make every lambda look equally
+  // bad; the mean-residual score has to stay meaningful here.
+  const rand = rng(21);
+  const model = new GazeModel();
+  const path = [
+    [0.1, 0.1, 0.9, 0.1],
+    [0.9, 0.1, 0.9, 0.5],
+    [0.9, 0.5, 0.1, 0.5],
+    [0.1, 0.5, 0.1, 0.9],
+    [0.1, 0.9, 0.9, 0.9],
+  ];
+  path.forEach(([ax, ay, bx, by], group) => {
+    for (let i = 0; i < 40; i++) {
+      const f = i / 39;
+      const p = {
+        x: (ax + (bx - ax) * f) * SCREEN.w,
+        y: (ay + (by - ay) * f) * SCREEN.h,
+      };
+      model.addSample(sample(p, rand, 0.0006), p.x, p.y, { group });
+    }
+  });
+
+  const report = model.fit();
+  assert.ok(report.lambda > 0, `lambda=${report.lambda}`);
+  assert.ok(Number.isFinite(report.cv), `cv=${report.cv}`);
+  // Leaving out a whole edge of the path is an extrapolation test, so the
+  // number is looser than an interpolation one - but it must still be sane.
+  assert.ok(report.cv < 400, `cv=${report.cv.toFixed(1)} px`);
+
+  const held = { x: 0.5 * SCREEN.w, y: 0.3 * SCREEN.h };
+  let sx = 0;
+  let sy = 0;
+  for (let i = 0; i < 30; i++) {
+    const q = model.predict(sample(held, rand, 0.0006));
+    sx += q.x;
+    sy += q.y;
+  }
+  const err = Math.hypot(sx / 30 - held.x, sy / 30 - held.y);
+  assert.ok(err < 120, `interior prediction off by ${err.toFixed(1)} px`);
+});
