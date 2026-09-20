@@ -28,7 +28,11 @@ jobs:
       # The site is plain static files, so the only gate is that the logic
       # still passes its tests.
       - run: npm test
+      # enablement turns Pages on via the API if it is not configured yet, so
+      # a fresh clone of this repo deploys without anyone visiting Settings.
       - uses: actions/configure-pages@v5
+        with:
+          enablement: true
       - uses: actions/upload-pages-artifact@v3
         with:
           path: .
