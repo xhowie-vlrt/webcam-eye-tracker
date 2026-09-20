@@ -108,7 +108,8 @@ export class CalibrationOverlay {
       for (let i = 0; i < points.length; i++) {
         if (this.cancelled) break;
         const p = points[i];
-        this.el.hint.textContent = `${label} ${i + 1} / ${points.length} — 点を見つめたままクリック`;
+        this.el.hint.textContent =
+          `${label} ${i + 1} / ${points.length} — 点を見つめたままクリック（Space でも可）`;
         this.el.dot.classList.remove('collecting');
         this._setDot(p.x, p.y, i > 0);
         this._progress(i / points.length);
@@ -205,10 +206,21 @@ export class CalibrationOverlay {
     return new Promise((resolve) => {
       const done = () => {
         this.el.dot.removeEventListener('pointerdown', done);
+        this.doc.removeEventListener('keydown', onKey, true);
         clearInterval(poll);
         resolve();
       };
+      // Space and Enter confirm as well as a click: a pointing device is not
+      // always available, and the point of the click is only to prove the
+      // user is attending to the target.
+      const onKey = (e) => {
+        if (e.key === ' ' || e.key === 'Enter') {
+          e.preventDefault();
+          done();
+        }
+      };
       this.el.dot.addEventListener('pointerdown', done, { once: true });
+      this.doc.addEventListener('keydown', onKey, true);
       const poll = setInterval(() => {
         if (this.cancelled) done();
       }, 50);

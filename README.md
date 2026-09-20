@@ -67,7 +67,7 @@ npm start                 # http://localhost:8080
 3. **精度を測る** — キャリブレーションに使っていない 9 点で実測。ここで出た数字があなたの現実です
 4. ずれてきたら **ドリフト補正** をオンにするか、キャリブレーションをやり直す
 
-`Esc` でいつでも中止できます。
+`Esc` でいつでも中止できます。点の確定は Space / Enter でも可能です。
 
 ### オフライン / CDN なしで動かす
 
@@ -112,7 +112,12 @@ et.on('fixation', ({ x, y, duration }) => { /* 注視が終わるたび */ });
 ホスト側に専用のマークアップは要りません。キャリブレーション UI は Shadow DOM の中に
 自前で組み立てるので、既存 CSS と衝突しません。動く例は [`examples/embed.html`](examples/embed.html)。
 
-### 4. PWA としてインストール
+### 4. npm パッケージとして
+
+`package.json` に `exports` / `files` を設定済みなので、そのまま `npm publish` できます
+（公開するかはお任せします）。利用側は `import { EyeTracker } from 'webcam-eye-tracker'`。
+
+### 5. PWA としてインストール
 
 `manifest.webmanifest` と `sw.js` が入っています。アプリシェルと MediaPipe 資産の
 両方がキャッシュされるので、2 回目以降はオフラインでも起動します。

@@ -111,15 +111,20 @@ try {
     await dot.waitFor({ state: 'visible', timeout: 15000 });
     // The dot is marked while it records; wait for it to go idle again.
     await page.waitForFunction(() => !collectingNow(), null, { timeout: 15000, polling: 50 });
-    // No force: the dot glides to its next position with a CSS transition, and
-    // clicking mid-transition lands on empty overlay. Let Playwright wait for
-    // the element to be stable first.
-    await dot.click({ timeout: 15000 });
+    if (i % 3 === 2) {
+      // Space confirms too, for users without a pointing device.
+      await page.keyboard.press('Space');
+    } else {
+      // No force: the dot glides to its next position with a CSS transition,
+      // and clicking mid-transition lands on empty overlay. Let Playwright
+      // wait for the element to be stable first.
+      await dot.click({ timeout: 15000 });
+    }
     await page.waitForFunction(() => collectingNow(), null, { timeout: 15000, polling: 50 });
   }
 
   const report = await calibration;
-  note(report.groups === 9, 'all nine targets were recorded', `${report.groups} groups`);
+  note(report.groups === 9, 'all nine targets were recorded (6 clicked, 3 via Space)', `${report.groups} groups`);
   note(report.samples > 200, 'enough samples were collected', `${report.samples}`);
   note(report.lambda > 0, 'cross-validation selected a ridge strength', `λ=${report.lambda}`);
   note(report.cv !== null && report.cv < 120, 'held-out error is sane', `${report.cv?.toFixed(0)} px`);

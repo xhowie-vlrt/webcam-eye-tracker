@@ -1,7 +1,6 @@
 {
   "name": "webcam-eye-tracker",
   "version": "0.1.0",
-  "private": true,
   "type": "module",
   "description": "Webcam-based gaze tracking that runs entirely in the browser",
   "scripts": {
@@ -11,5 +10,36 @@
     "test": "node --test test/*.test.js",
     "test:e2e": "node test/e2e/smoke.mjs && node test/e2e/calibration.mjs"
   },
-  "license": "MIT"
+  "license": "MIT",
+  "keywords": [
+    "eye-tracking",
+    "gaze",
+    "webcam",
+    "mediapipe",
+    "attention",
+    "heatmap",
+    "fixation",
+    "webgazer"
+  ],
+  "main": "js/eyetracker.js",
+  "exports": {
+    ".": "./js/eyetracker.js",
+    "./*": "./js/*"
+  },
+  "files": [
+    "js",
+    "css",
+    "examples",
+    "tools",
+    "index.html",
+    "sw.js",
+    "manifest.webmanifest",
+    "icon.svg",
+    "README.md",
+    "LICENSE"
+  ],
+  "sideEffects": [
+    "./js/app.js",
+    "./sw.js"
+  ]
 }
