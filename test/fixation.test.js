@@ -33,6 +33,18 @@ test('micro-dwells shorter than the minimum are discarded', () => {
   assert.equal(det.add(900, 900, 100), null);
 });
 
+test('a blink-length gap does not split one fixation in two', () => {
+  const det = new FixationDetector();
+  const ended = [];
+  ended.push(...dwell(det, 500, 400, 400, 0));
+  // No samples are emitted while the lid is down, so a 250 ms blink shows up
+  // here as a gap. Splitting on it would double-count the fixation.
+  ended.push(...dwell(det, 500, 400, 400, 650));
+  assert.equal(ended.length, 0, 'nothing closed across the blink');
+  const f = det.flush();
+  assert.ok(f.duration > 900, `one fixation spanning the blink, got ${f.duration}`);
+});
+
 test('a gap in the stream ends the fixation', () => {
   const det = new FixationDetector({ maxGapMs: 200 });
   dwell(det, 200, 200, 400, 0);

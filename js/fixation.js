@@ -10,12 +10,14 @@ export class FixationDetector {
    * @param {object} [opts]
    * @param {number} [opts.velocityThreshold] px/s above which we call it a saccade
    * @param {number} [opts.minDurationMs] shorter candidates are discarded
-   * @param {number} [opts.maxGapMs] a longer gap (blink, lost face) ends the fixation
+   * @param {number} [opts.maxGapMs] a longer gap ends the fixation. Spontaneous
+   *   blinks run 100-400 ms and no samples are emitted during one, so the
+   *   default bridges a blink rather than splitting one fixation into two.
    */
   constructor({
     velocityThreshold = 600,
     minDurationMs = 100,
-    maxGapMs = 250,
+    maxGapMs = 450,
   } = {}) {
     this.velocityThreshold = velocityThreshold;
     this.minDurationMs = minDurationMs;

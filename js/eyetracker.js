@@ -17,9 +17,11 @@ import { FixationDetector } from './fixation.js';
 import { CalibrationOverlay, serpentine } from './calibration-ui.js';
 import { gridPoints, validationPoints, shuffle } from './points.js';
 
-const BLINK_EAR = 0.17; // fallback until calibration learns the user's own
+const BLINK_EAR = 0.17; // bootstrap only, until enough frames have been seen
 const BLINK_EAR_RATIO = 0.6; // of the median open-eye ratio
 const BLINK_EAR_RANGE = [0.1, 0.25];
+const EAR_WINDOW = 300; // ~10 s at 30 fps
+const EAR_RECOMPUTE_EVERY = 30;
 const DRIFT_WEIGHT = 0.25; // a click is a weaker signal than a calibration point
 const DRIFT_REFIT_EVERY = 4;
 
@@ -53,6 +55,9 @@ export class EyeTracker {
     this._driftPending = 0;
     this._driftGroup = 0;
     this._calEars = [];
+    this._earWindow = [];
+    this._earTick = 0;
+    this._liveBlinkThreshold = null;
     this._poseOk = true;
 
     this.setSmoothing(smoothing);
@@ -105,12 +110,16 @@ export class EyeTracker {
   }
 
   /**
-   * Eye-aspect ratio below which we call it a blink. Learned per user during
-   * calibration - a fixed constant misfires badly on narrow eyes or a camera
-   * mounted well above or below eye level.
+   * Eye-aspect ratio below which we call it a blink.
+   *
+   * A fixed constant misfires badly on narrow eyes or a camera mounted well
+   * above or below eye level: either every frame reads as a blink - which
+   * would make the very first calibration collect nothing and fail - or none
+   * do. So the threshold tracks a rolling median from the first seconds of
+   * video, and the calibrated value takes over once it exists.
    */
   get blinkThreshold() {
-    return this.model.blinkThreshold ?? BLINK_EAR;
+    return this.model.blinkThreshold ?? this._liveBlinkThreshold ?? BLINK_EAR;
   }
 
   get fps() {
@@ -150,6 +159,7 @@ export class EyeTracker {
 
     const aspect = (this.video.videoWidth || 16) / (this.video.videoHeight || 9);
     const f = buildFeatures(landmarks, aspect);
+    this._trackEar(f.ear);
     this.blinking = f.ear < this.blinkThreshold;
     this.latest = { vec: f.vec, ear: f.ear, landmarks, timestamp };
     if (this.calibrating) this._calEars.push(f.ear);
@@ -200,6 +210,15 @@ export class EyeTracker {
       timestamp,
     };
     this._emit('gaze', this.lastGaze);
+  }
+
+  _trackEar(ear) {
+    this._earWindow.push(ear);
+    if (this._earWindow.length > EAR_WINDOW) this._earWindow.shift();
+    // Sorting every frame would be wasteful; the estimate moves slowly.
+    if (++this._earTick % EAR_RECOMPUTE_EVERY === 0) {
+      this._liveBlinkThreshold = learnBlinkThreshold(this._earWindow);
+    }
   }
 
   /** Latest feature vector, or null while blinking / no face. */
@@ -253,7 +272,10 @@ export class EyeTracker {
       });
 
       const report = this.model.fit();
-      this.model.blinkThreshold = learnBlinkThreshold(this._calEars);
+      // The whole calibration is a longer, more representative sample than
+      // the rolling window, so prefer it once we have it.
+      this.model.blinkThreshold =
+        learnBlinkThreshold(this._calEars) ?? this._liveBlinkThreshold;
       this.model.save();
       this.smoother.reset();
       this.fixations.reset();
