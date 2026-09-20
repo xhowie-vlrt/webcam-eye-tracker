@@ -1,14 +1,6 @@
 // Camera capture + MediaPipe FaceLandmarker, wrapped in a small event emitter.
 
-import {
-  FaceLandmarker,
-  FilesetResolver,
-} from 'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.18/vision_bundle.mjs';
-
-const WASM_BASE =
-  'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.18/wasm';
-const MODEL_URL =
-  'https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/1/face_landmarker.task';
+import { resolveAssets } from './config.js';
 
 export class FaceTracker {
   constructor(video) {
@@ -24,9 +16,16 @@ export class FaceTracker {
 
   async load() {
     if (this.landmarker) return;
-    const fileset = await FilesetResolver.forVisionTasks(WASM_BASE);
+    const assets = resolveAssets();
+    this.assets = assets;
+    // Loaded dynamically so the source of the runtime stays configurable; see
+    // js/config.js.
+    const { FaceLandmarker, FilesetResolver } = await import(
+      /* @vite-ignore */ assets.bundle
+    );
+    const fileset = await FilesetResolver.forVisionTasks(assets.wasm);
     this.landmarker = await FaceLandmarker.createFromOptions(fileset, {
-      baseOptions: { modelAssetPath: MODEL_URL, delegate: 'GPU' },
+      baseOptions: { modelAssetPath: assets.model, delegate: 'GPU' },
       runningMode: 'VIDEO',
       numFaces: 1,
       // The model bundle already returns the 10 iris points we depend on.

@@ -47,26 +47,38 @@ export function solve(A, B) {
  * @param {number[][]} X samples (n x d), no intercept column
  * @param {number[][]} Y targets (n x k)
  * @param {number} lambda ridge strength, relative to one sample
+ * @param {number[]} [weights] per-sample weights (used by the robust refit)
  * @returns {{mean:number[], std:number[], W:number[][]}}
  */
-export function ridgeFit(X, Y, lambda = 1e-2) {
+export function ridgeFit(X, Y, lambda = 1e-2, weights = null) {
   const n = X.length;
   if (n === 0) throw new Error('no samples');
   const d = X[0].length;
   const k = Y[0].length;
+  const w = weights ?? null;
+  let wSum = n;
+  if (w) {
+    wSum = 0;
+    for (let i = 0; i < n; i++) wSum += w[i];
+    if (!(wSum > 0)) throw new Error('all sample weights are zero');
+  }
 
   const mean = new Array(d).fill(0);
   const std = new Array(d).fill(0);
-  for (const row of X) for (let j = 0; j < d; j++) mean[j] += row[j];
-  for (let j = 0; j < d; j++) mean[j] /= n;
-  for (const row of X) {
+  for (let i = 0; i < n; i++) {
+    const wi = w ? w[i] : 1;
+    for (let j = 0; j < d; j++) mean[j] += wi * X[i][j];
+  }
+  for (let j = 0; j < d; j++) mean[j] /= wSum;
+  for (let i = 0; i < n; i++) {
+    const wi = w ? w[i] : 1;
     for (let j = 0; j < d; j++) {
-      const v = row[j] - mean[j];
-      std[j] += v * v;
+      const v = X[i][j] - mean[j];
+      std[j] += wi * v * v;
     }
   }
   for (let j = 0; j < d; j++) {
-    std[j] = Math.sqrt(std[j] / n);
+    std[j] = Math.sqrt(std[j] / wSum);
     if (!(std[j] > 1e-9)) std[j] = 1; // constant column -> leave it alone
   }
 
@@ -77,17 +89,21 @@ export function ridgeFit(X, Y, lambda = 1e-2) {
 
   for (let i = 0; i < n; i++) {
     const row = X[i];
+    const wi = w ? w[i] : 1;
+    if (wi === 0) continue;
     z[0] = 1;
     for (let j = 0; j < d; j++) z[j + 1] = (row[j] - mean[j]) / std[j];
     for (let a = 0; a < D; a++) {
-      const za = z[a];
+      const za = wi * z[a];
       if (za === 0) continue;
       for (let b = a; b < D; b++) A[a][b] += za * z[b];
       for (let c = 0; c < k; c++) B[a][c] += za * Y[i][c];
     }
   }
   for (let a = 0; a < D; a++) for (let b = 0; b < a; b++) A[a][b] = A[b][a];
-  for (let a = 1; a < D; a++) A[a][a] += lambda * n;
+  // Scale the penalty by the effective sample count so lambda means the same
+  // thing whether or not weights are in play.
+  for (let a = 1; a < D; a++) A[a][a] += lambda * wSum;
 
   return { mean, std, W: solve(A, B) };
 }

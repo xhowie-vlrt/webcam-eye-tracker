@@ -14,3 +14,25 @@ jobs:
         with:
           node-version: '22'
       - run: npm test
+
+  browser:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - run: npm install --no-save playwright@1.56.1
+      - run: npx playwright install --with-deps chromium
+      # Serve the MediaPipe runtime locally so the run needs no third-party
+      # network, and so a CDN hiccup cannot turn into a red build.
+      - run: npm run setup
+      - run: npx --yes http-server -p 8099 -s . &
+      - run: npx --yes wait-on http://127.0.0.1:8099/index.html
+      - run: npm run test:e2e
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: screenshots
+          path: test/e2e/screenshot-*.png
+          if-no-files-found: ignore

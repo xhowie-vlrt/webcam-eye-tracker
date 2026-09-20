@@ -1,0 +1,140 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>組み込み例 — Webcam Eye Tracker</title>
+<style>
+  :root { color-scheme: dark; }
+  body {
+    margin: 0; padding: 32px 24px 64px;
+    background: #0d1017; color: #e6ebf3;
+    font: 15px/1.7 system-ui, -apple-system, "Hiragino Sans", "Noto Sans JP", sans-serif;
+  }
+  h1 { font-size: 20px; margin: 0 0 4px; }
+  p.lead { color: #93a0b5; margin: 0 0 20px; max-width: 60ch; }
+  .bar { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 8px; }
+  button {
+    min-height: 36px; padding: 0 14px; font: inherit; font-size: 13px;
+    color: #04121c; background: #5ac8fa; border: 0; border-radius: 8px; cursor: pointer;
+  }
+  button:disabled { opacity: .4; cursor: not-allowed; }
+  #status { color: #93a0b5; font-size: 13px; min-height: 1.7em; margin: 0 0 24px; }
+  .grid { display: grid; gap: 14px; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); }
+  .card {
+    position: relative; padding: 20px; min-height: 130px;
+    background: #161b25; border: 1px solid #2c3444; border-radius: 12px;
+    transition: border-color 160ms, background 160ms, transform 160ms;
+  }
+  .card.looked { border-color: #5ac8fa; background: #1b2635; transform: translateY(-2px); }
+  .card h2 { font-size: 15px; margin: 0 0 6px; }
+  .card p { margin: 0; color: #93a0b5; font-size: 13px; }
+  .dwell {
+    position: absolute; right: 12px; bottom: 10px;
+    font: 600 12px ui-monospace, Menlo, monospace; color: #fbbf24;
+    font-variant-numeric: tabular-nums;
+  }
+  #dot {
+    position: fixed; top: 0; left: 0; width: 22px; height: 22px; margin: -11px 0 0 -11px;
+    border: 2px solid #5ac8fa; border-radius: 50%; background: rgba(90,200,250,.2);
+    pointer-events: none; z-index: 9999; display: none;
+  }
+  pre {
+    margin-top: 32px; padding: 16px; overflow-x: auto;
+    background: #12161f; border: 1px solid #2c3444; border-radius: 10px;
+    font: 12.5px/1.6 ui-monospace, Menlo, monospace; color: #cbd5e5;
+  }
+</style>
+<meta name="eyetracker-assets" content="../vendor">
+</head>
+<body>
+
+<h1>組み込み例: 注視されたカードを光らせる</h1>
+<p class="lead">
+  <code>EyeTracker</code> を import して <code>gaze</code> / <code>fixation</code> を購読するだけ。
+  キャリブレーション画面はライブラリ側が持っているので、このページに専用のマークアップはありません。
+</p>
+
+<div class="bar">
+  <button id="start">カメラを開始</button>
+  <button id="calibrate" disabled>キャリブレーション</button>
+</div>
+<p id="status">未開始</p>
+
+<div class="grid" id="grid">
+  <div class="card"><h2>要素 A</h2><p>見つめると枠が光り、注視時間が加算されます。</p><span class="dwell">0.0s</span></div>
+  <div class="card"><h2>要素 B</h2><p>fixation イベントの重心がこの矩形に入った時間です。</p><span class="dwell">0.0s</span></div>
+  <div class="card"><h2>要素 C</h2><p>ヒートマップより実用的な、要素単位の注目度。</p><span class="dwell">0.0s</span></div>
+  <div class="card"><h2>要素 D</h2><p>A/B テストや UI 評価はだいたいこの粒度で足ります。</p><span class="dwell">0.0s</span></div>
+  <div class="card"><h2>要素 E</h2><p>視線の生データは使わず、注視点だけを見ています。</p><span class="dwell">0.0s</span></div>
+  <div class="card"><h2>要素 F</h2><p>ノイズに強く、しきい値調整もほぼ不要です。</p><span class="dwell">0.0s</span></div>
+</div>
+
+<div id="dot"></div>
+
+<pre><code>import { EyeTracker } from './js/eyetracker.js';
+
+const et = new EyeTracker();
+await et.start();                       // カメラ + モデル読み込み
+await et.calibrate({ mode: 'both' });   // 専用UIが立ち上がる
+
+et.on('gaze', ({ x, y, blink }) =&gt; { /* 毎フレームの視線 */ });
+et.on('fixation', ({ x, y, duration }) =&gt; { /* 注視が終わるたび */ });</code></pre>
+
+<script type="module">
+import { EyeTracker } from '../js/eyetracker.js';
+
+const et = new EyeTracker();
+const dot = document.getElementById('dot');
+const status = document.getElementById('status');
+const cards = [...document.querySelectorAll('.card')];
+const dwell = new Map(cards.map((c) => [c, 0]));
+
+document.getElementById('start').addEventListener('click', async (e) => {
+  e.target.disabled = true;
+  status.textContent = 'モデルを読み込み中…';
+  try {
+    await et.start();
+    et.loadModel();
+    dot.style.display = 'block';
+    document.getElementById('calibrate').disabled = false;
+    status.textContent = et.calibrated
+      ? '保存済みモデルで推定中'
+      : 'キャリブレーションしてください';
+  } catch (err) {
+    status.textContent = `カメラを開始できません: ${err.message}`;
+    e.target.disabled = false;
+  }
+});
+
+document.getElementById('calibrate').addEventListener('click', async () => {
+  const report = await et.calibrate({ mode: 'both' });
+  status.textContent = report
+    ? `キャリブレーション完了（交差検証誤差 ${report.cv?.toFixed(0) ?? '-'} px）`
+    : '中止しました';
+});
+
+et.on('gaze', ({ x, y, blink }) => {
+  dot.style.transform = `translate(${x}px, ${y}px)`;
+  dot.style.opacity = blink ? 0.25 : 1;
+  const hit = cardAt(x, y);
+  for (const c of cards) c.classList.toggle('looked', c === hit);
+});
+
+et.on('fixation', (f) => {
+  const card = cardAt(f.x, f.y);
+  if (!card) return;
+  const total = dwell.get(card) + f.duration;
+  dwell.set(card, total);
+  card.querySelector('.dwell').textContent = `${(total / 1000).toFixed(1)}s`;
+});
+
+function cardAt(x, y) {
+  return cards.find((c) => {
+    const r = c.getBoundingClientRect();
+    return x >= r.left && x <= r.right && y >= r.top && y <= r.bottom;
+  }) ?? null;
+}
+</script>
+</body>
+</html>

@@ -1,0 +1,13 @@
+{
+  "name": "Webcam Eye Tracker",
+  "short_name": "EyeTracker",
+  "description": "Webカメラだけで視線を推定する、ブラウザ完結のアイトラッカー",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#0d1017",
+  "theme_color": "#0d1017",
+  "icons": [
+    { "src": "icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" }
+  ]
+}

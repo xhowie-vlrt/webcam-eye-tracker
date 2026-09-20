@@ -2,3 +2,5 @@ node_modules/
 .DS_Store
 *.log
 *.csv
+vendor/
+test/e2e/screenshot-*.png

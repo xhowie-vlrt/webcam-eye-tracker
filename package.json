@@ -5,8 +5,11 @@
   "type": "module",
   "description": "Webcam-based gaze tracking that runs entirely in the browser",
   "scripts": {
-    "start": "python3 -m http.server 8080",
-    "test": "node --test test/*.test.js"
+    "start": "npx --yes http-server -p 8080 -s -c-1 .",
+    "setup": "node tools/fetch-assets.mjs",
+    "setup:revert": "node tools/fetch-assets.mjs --revert",
+    "test": "node --test test/*.test.js",
+    "test:e2e": "node test/e2e/smoke.mjs"
   },
   "license": "MIT"
 }
