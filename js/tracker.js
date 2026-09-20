@@ -1,6 +1,6 @@
 // Camera capture + MediaPipe FaceLandmarker, wrapped in a small event emitter.
 
-import { resolveAssets } from './config.js';
+import { resolveAssets, CDN_ASSETS } from './config.js';
 
 export class FaceTracker {
   constructor(video) {
@@ -16,16 +16,27 @@ export class FaceTracker {
 
   async load() {
     if (this.landmarker) return;
+    // Loaded dynamically so the source of the runtime stays configurable
+    // (see js/config.js), and so a missing local copy can fall back.
     const assets = resolveAssets();
-    this.assets = assets;
-    // Loaded dynamically so the source of the runtime stays configurable; see
-    // js/config.js.
-    const { FaceLandmarker, FilesetResolver } = await import(
-      /* @vite-ignore */ assets.bundle
-    );
-    const fileset = await FilesetResolver.forVisionTasks(assets.wasm);
+    let vision;
+    try {
+      vision = await import(/* @vite-ignore */ assets.bundle);
+      this.assets = assets;
+    } catch (err) {
+      if (!assets.local) throw err;
+      console.warn(
+        'eyetracker: local MediaPipe assets are missing, falling back to the CDN.',
+        'Run `npm run setup`, or remove the <meta name="eyetracker-assets"> tag.',
+        err
+      );
+      vision = await import(/* @vite-ignore */ CDN_ASSETS.bundle);
+      this.assets = { ...CDN_ASSETS, local: false };
+    }
+    const { FaceLandmarker, FilesetResolver } = vision;
+    const fileset = await FilesetResolver.forVisionTasks(this.assets.wasm);
     this.landmarker = await FaceLandmarker.createFromOptions(fileset, {
-      baseOptions: { modelAssetPath: assets.model, delegate: 'GPU' },
+      baseOptions: { modelAssetPath: this.assets.model, delegate: 'GPU' },
       runningMode: 'VIDEO',
       numFaces: 1,
       // The model bundle already returns the 10 iris points we depend on.

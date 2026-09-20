@@ -5,8 +5,8 @@
 // only fails at runtime: module graph resolution, MediaPipe wasm + model
 // loading, getUserMedia, the detect loop, and the "no face" UI path.
 //
-// Run `npm run setup` first so the MediaPipe assets are served locally; the
-// test then needs no network at all.
+// Run `npm run setup` first so the MediaPipe assets are served from ./vendor;
+// the test then needs no network at all.
 //
 // Usage: node test/e2e/smoke.mjs [baseUrl]
 
@@ -38,6 +38,13 @@ context.on('console', (m) => {
   if (m.type() === 'error') consoleErrors.push(m.text());
 });
 context.on('weberror', (e) => pageErrors.push(String(e.error())));
+
+// Point every page at the vendored MediaPipe assets via the documented
+// global, so the test does not depend on whether npm run setup has written
+// the <meta> tag into the HTML.
+await context.addInitScript(() => {
+  globalThis.EYETRACKER_ASSETS = '/vendor';
+});
 
 const page = await context.newPage();
 page.on('pageerror', (e) => pageErrors.push(String(e)));

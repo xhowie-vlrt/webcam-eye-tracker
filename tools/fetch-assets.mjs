@@ -6,8 +6,13 @@
 // a strict CSP, and cannot be broken by a CDN outage. That matters more for a
 // distributed build than the ~17 MB it costs.
 //
-//   node tools/fetch-assets.mjs           download + wire up
-//   node tools/fetch-assets.mjs --revert  remove ./vendor and go back to the CDN
+//   node tools/fetch-assets.mjs                   download + wire up
+//   node tools/fetch-assets.mjs --revert          go back to the CDN, keep the files
+//   node tools/fetch-assets.mjs --revert --purge  ... and delete ./vendor too
+//
+// The <meta> tag is a *local* switch: vendor/ is gitignored, so committing the
+// tag would leave a fresh clone pointing at files that are not there. Unwire
+// before committing, or let CI run `npm run setup` on its own checkout.
 
 import { execFileSync } from 'node:child_process';
 import { mkdtempSync, rmSync, mkdirSync, cpSync, existsSync, statSync, readFileSync, writeFileSync } from 'node:fs';
@@ -24,9 +29,12 @@ const PAGES = ['index.html', join('examples', 'embed.html')];
 const META = '<meta name="eyetracker-assets" content="vendor">';
 
 if (process.argv.includes('--revert')) {
-  rmSync(VENDOR, { recursive: true, force: true });
   for (const page of PAGES) setMeta(join(ROOT, page), false);
-  console.log('vendor/ removed; the app will use the CDN again.');
+  if (process.argv.includes('--purge')) {
+    rmSync(VENDOR, { recursive: true, force: true });
+    console.log('vendor/ deleted.');
+  }
+  console.log('The app will use the CDN again.');
   process.exit(0);
 }
 
