@@ -1,0 +1,75 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Webcam Eye Tracker</title>
+<meta name="description" content="Webカメラだけで視線を推定するブラウザ完結のアイトラッカー">
+<link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+
+<canvas id="heatmap" class="layer" aria-hidden="true"></canvas>
+<div id="gazeDot" class="gaze-dot hidden" aria-hidden="true"></div>
+
+<header class="topbar">
+  <h1>Webcam Eye Tracker</h1>
+  <p id="status" class="status" role="status">カメラは停止中です</p>
+</header>
+
+<main class="panel">
+  <section class="preview">
+    <video id="video" playsinline muted></video>
+    <canvas id="mesh"></canvas>
+    <div id="previewHint" class="preview-hint">カメラ未接続</div>
+  </section>
+
+  <section class="controls">
+    <div class="row">
+      <button id="btnStart" class="primary">カメラを開始</button>
+      <button id="btnCalibrate" disabled>キャリブレーション (9点)</button>
+      <button id="btnValidate" disabled>精度を測る</button>
+    </div>
+    <div class="row">
+      <button id="btnRecord" disabled>記録を開始</button>
+      <button id="btnExport" disabled>CSV を書き出す</button>
+      <button id="btnReset" disabled>モデルを消去</button>
+    </div>
+
+    <div class="row toggles">
+      <label><input type="checkbox" id="chkDot" checked> 視線ドット</label>
+      <label><input type="checkbox" id="chkHeatmap"> ヒートマップ</label>
+      <label><input type="checkbox" id="chkMesh" checked> 特徴点オーバーレイ</label>
+    </div>
+
+    <div class="row slider">
+      <label for="smoothing">スムージング</label>
+      <input type="range" id="smoothing" min="0" max="100" value="55">
+      <span id="smoothingValue" class="mono">55</span>
+    </div>
+
+    <dl class="stats">
+      <div><dt>FPS</dt><dd id="statFps" class="mono">-</dd></div>
+      <div><dt>サンプル数</dt><dd id="statSamples" class="mono">0</dd></div>
+      <div><dt>学習誤差</dt><dd id="statTrain" class="mono">-</dd></div>
+      <div><dt>検証誤差</dt><dd id="statValidation" class="mono">-</dd></div>
+      <div><dt>まばたき</dt><dd id="statBlink" class="mono">-</dd></div>
+      <div><dt>記録点数</dt><dd id="statLog" class="mono">0</dd></div>
+    </dl>
+
+    <p class="note">
+      映像も視線データもこの端末から出ません。すべてブラウザ内で処理しています。
+    </p>
+  </section>
+</main>
+
+<div id="calibration" class="cal-overlay hidden">
+  <p id="calHint" class="cal-hint"></p>
+  <div id="calDot" class="cal-dot"></div>
+  <p class="cal-escape">Esc で中止</p>
+</div>
+
+<noscript>このページは JavaScript が必要です。</noscript>
+<script type="module" src="js/app.js"></script>
+</body>
+</html>

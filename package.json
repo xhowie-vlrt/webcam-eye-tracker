@@ -1,0 +1,12 @@
+{
+  "name": "webcam-eye-tracker",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Webcam-based gaze tracking that runs entirely in the browser",
+  "scripts": {
+    "start": "python3 -m http.server 8080",
+    "test": "node --test test/*.test.js"
+  },
+  "license": "MIT"
+}
