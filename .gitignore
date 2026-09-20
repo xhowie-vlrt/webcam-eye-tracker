@@ -4,3 +4,4 @@ node_modules/
 *.csv
 vendor/
 test/e2e/screenshot-*.png
+test/e2e/fixtures/

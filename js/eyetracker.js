@@ -17,7 +17,12 @@ import { FixationDetector } from './fixation.js';
 import { CalibrationOverlay, serpentine } from './calibration-ui.js';
 import { gridPoints, validationPoints, shuffle } from './points.js';
 
-const BLINK_EAR = 0.17; // bootstrap only, until enough frames have been seen
+// Bootstrap only, for the ~1 s before the rolling median has enough frames.
+// Measured against MediaPipe's own test portrait (test/e2e/landmarks.mjs), a
+// real open eye sits at EAR ~0.22, so the commonly quoted 0.17 leaves almost
+// no margin. Erring low means a blink in that first second may be missed,
+// which costs far less than rejecting every frame as a blink.
+const BLINK_EAR = 0.13;
 const BLINK_EAR_RATIO = 0.6; // of the median open-eye ratio
 const BLINK_EAR_RANGE = [0.1, 0.25];
 const EAR_WINDOW = 300; // ~10 s at 30 fps

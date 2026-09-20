@@ -29,7 +29,7 @@ jobs:
       - run: npm run setup
       - run: npx --yes http-server -p 8099 -s . &
       - run: npx --yes wait-on http://127.0.0.1:8099/index.html
-      - run: npm run test:e2e   # smoke + full calibration run
+      - run: npm run test:e2e   # smoke + real-face landmark map + full calibration
       - uses: actions/upload-artifact@v4
         if: always()
         with:
