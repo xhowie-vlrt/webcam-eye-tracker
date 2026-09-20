@@ -13,9 +13,11 @@
 //      correction (assume the user looks at what they click) feeds back in.
 
 import { ridgeFit, ridgePredict } from './math.js';
-import { FEATURE_DIM } from './features.js';
+import { FEATURE_DIM, HEAD_FEATURES } from './features.js';
 
-const STORAGE_KEY = 'webcam-eye-tracker:model:v2';
+const STORAGE_KEY = 'webcam-eye-tracker:model:v3';
+/** |z| beyond this on a head feature means we are extrapolating. */
+const POSE_Z_LIMIT = 3;
 const LAMBDAS = [3e-4, 1e-3, 3e-3, 1e-2, 3e-2, 0.1, 0.3, 1];
 const IRLS_ROUNDS = 3;
 const MIN_SAMPLES = 20;
@@ -33,6 +35,10 @@ export class GazeModel {
     this.lambda = null;
     this.trainError = null;
     this.cvError = null;
+    /** Head-pose distribution seen during calibration. */
+    this.headStats = null;
+    /** Per-user eye-aspect-ratio threshold, learned during calibration. */
+    this.blinkThreshold = null;
   }
 
   get ready() {
@@ -71,6 +77,8 @@ export class GazeModel {
     this.lambda = null;
     this.trainError = null;
     this.cvError = null;
+    this.headStats = null;
+    this.blinkThreshold = null;
   }
 
   /** Remove everything added by drift correction, keeping the calibration. */
@@ -109,6 +117,7 @@ export class GazeModel {
     this.cvError = cvError;
     this.model = this._fitWeighted(this.samples, lambda, robust);
     this.trainError = this.evaluate(this.samples);
+    this.headStats = summariseHeadPose(this.samples);
     return { train: this.trainError, cv: cvError, lambda };
   }
 
@@ -140,6 +149,31 @@ export class GazeModel {
       p95: errors[Math.min(errors.length - 1, Math.floor(errors.length * 0.95))],
       max: errors[errors.length - 1],
       n: errors.length,
+    };
+  }
+
+  /**
+   * How far the current pose sits outside the calibrated range.
+   * @returns {{ok:boolean, score:number, reason:string|null}}
+   *   score is the worst |z| across the head features; 0 when uncalibrated.
+   */
+  poseQuality(vec) {
+    if (!this.headStats) return { ok: true, score: 0, reason: null };
+    let worst = 0;
+    let culprit = null;
+    for (const f of HEAD_FEATURES) {
+      const st = this.headStats[f.name];
+      if (!st) continue;
+      const z = Math.abs((vec[f.index] - st.mean) / st.std);
+      if (z > worst) {
+        worst = z;
+        culprit = f;
+      }
+    }
+    return {
+      ok: worst <= POSE_Z_LIMIT,
+      score: worst,
+      reason: worst > POSE_Z_LIMIT ? culprit.label : null,
     };
   }
 
@@ -213,6 +247,8 @@ export class GazeModel {
           lambda: this.lambda,
           trainError: this.trainError,
           cvError: this.cvError,
+          headStats: this.headStats,
+          blinkThreshold: this.blinkThreshold,
           screen: { w: window.innerWidth, h: window.innerHeight },
           savedAt: Date.now(),
         })
@@ -233,6 +269,8 @@ export class GazeModel {
       this.lambda = parsed.lambda ?? null;
       this.trainError = parsed.trainError ?? null;
       this.cvError = parsed.cvError ?? null;
+      this.headStats = parsed.headStats ?? null;
+      this.blinkThreshold = parsed.blinkThreshold ?? null;
       return parsed;
     } catch {
       return null;
@@ -246,6 +284,23 @@ export class GazeModel {
       /* private mode - nothing to do */
     }
   }
+}
+
+/** Mean and spread of each head-pose feature across the calibration set. */
+function summariseHeadPose(samples) {
+  const stats = {};
+  for (const f of HEAD_FEATURES) {
+    let sum = 0;
+    for (const s of samples) sum += s.vec[f.index];
+    const mean = sum / samples.length;
+    let variance = 0;
+    for (const s of samples) variance += (s.vec[f.index] - mean) ** 2;
+    const std = Math.sqrt(variance / samples.length);
+    // A calibration where the user sat perfectly still gives std ~ 0, which
+    // would flag every later frame. Floor it at a fraction of the magnitude.
+    stats[f.name] = { mean, std: Math.max(std, Math.abs(mean) * 0.02, 1e-3) };
+  }
+  return stats;
 }
 
 /**

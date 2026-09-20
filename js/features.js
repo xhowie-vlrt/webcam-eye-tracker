@@ -104,3 +104,18 @@ export function buildFeatures(landmarks, aspect) {
 }
 
 export const FEATURE_DIM = 24;
+
+/**
+ * Which columns of the feature vector describe the head rather than the eyes.
+ * Used to tell whether the current pose is inside the range the model was
+ * calibrated on - outside it, the prediction is extrapolation, and saying so
+ * is far more useful than silently being wrong.
+ */
+export const HEAD_FEATURES = [
+  { index: 9, name: 'yaw', label: '顔の向き（左右）' },
+  { index: 10, name: 'pitch', label: '顔の向き（上下）' },
+  { index: 11, name: 'roll', label: '顔の傾き' },
+  { index: 12, name: 'scale', label: 'カメラからの距離' },
+  { index: 14, name: 'headX', label: '顔の左右位置' },
+  { index: 15, name: 'headY', label: '顔の上下位置' },
+];

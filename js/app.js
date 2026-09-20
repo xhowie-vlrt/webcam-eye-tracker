@@ -88,6 +88,16 @@ tracker.on('fixation', (f) => {
   el.statFixations.textContent = String(state.fixations);
 });
 
+tracker.on('quality', ({ ok, reason }) => {
+  el.gazeDot.classList.toggle('degraded', !ok);
+  setStatus(
+    ok
+      ? 'キャリブレーション時の姿勢に戻りました'
+      : `${reason}がキャリブレーション時と違います — 精度が落ちています`,
+    ok ? 'ok' : 'warn'
+  );
+});
+
 tracker.on('error', (err) => setStatus(describe(err), 'error'));
 
 function drawMesh(landmarks) {

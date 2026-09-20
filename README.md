@@ -44,6 +44,10 @@ Web カメラ方式は**別のカテゴリの道具**だと考えてください
 5. **眼鏡の反射を避ける。** 光源の位置を少しずらすだけで変わります
 6. **720p 以上のカメラを使う。** 虹彩は画面上わずか十数ピクセルです
 
+なお 4 については、**キャリブレーション時の頭部姿勢分布から外れると自動で警告します**
+（視線ドットが橙の破線になり、どの要素が変わったかを表示します）。
+「知らないうちにずれていた」という一番よくある失敗を潰すための仕掛けです。
+
 ---
 
 ## 使い方
@@ -139,7 +143,7 @@ et.on('fixation', ({ x, y, duration }) => { /* 注視が終わるたび */ });
 | `await start()` / `stop()` / `destroy()` | カメラとモデルのライフサイクル |
 | `await calibrate({ mode, cols, rows })` | `mode` は `'click' \| 'pursuit' \| 'both'`。中止時は `null` |
 | `await validate({ points })` | 未学習の点で精度実測。`{ mean, p95, max, degrees }` |
-| `on(event, fn) → unsubscribe` | `'gaze' \| 'fixation' \| 'face' \| 'status' \| 'error'` |
+| `on(event, fn) → unsubscribe` | `'gaze' \| 'fixation' \| 'face' \| 'quality' \| 'status' \| 'error'` |
 | `setSmoothing(0..1)` / `setDriftCorrection(bool)` | 実行中に変更可 |
 | `loadModel()` / `clearModel()` | localStorage への永続化 |
 
@@ -147,10 +151,13 @@ et.on('fixation', ({ x, y, duration }) => { /* 注視が終わるたび */ });
 
 ```js
 // gaze: 毎フレーム
-{ x, y, rawX, rawY, blink, fixation, timestamp }
+{ x, y, rawX, rawY, blink, quality, fixation, timestamp }
 
 // fixation: 注視が「終わった」ときに一度
 { x, y, start, end, duration, samples, dispersion }
+
+// quality: 推定の信頼性が変化した瞬間だけ
+{ ok, score, reason }   // score は頭部姿勢の |z| 最大値、reason は原因の日本語ラベル
 ```
 
 ---
@@ -194,6 +201,18 @@ z 標準化 → 切片を除いた L2 正則化リッジ回帰で `(x, y)` を�
 ただし**眼は動く点に約 100 ms 遅れて追従する**ので、時刻 t のサンプルは
 「今の点の位置」ではなく「t − 120 ms の点の位置」と対応付けます。この補正がないと系統誤差が乗ります。
 
+### 推定の信頼性 — `js/gaze.js` の `poseQuality()`
+
+学習時の頭部姿勢（ヨー・ピッチ・ロール・距離・位置）の平均と分散を保存しておき、
+実行中の姿勢がそこから |z| > 3 外れたら「外挿している」と判定します。
+回帰モデルは学習範囲の外でも平然と値を返すので、**黙って外すより、外していると言うほうが実用的**です。
+
+### まばたき判定 — 個人適応
+
+固定しきい値（EAR < 0.17）は、目の細い人やカメラが目線より大きく上下にある環境で誤爆します。
+キャリブレーション中の EAR の中央値の 0.6 倍を、その人・その環境のしきい値として学習します
+（まばたきは短いので、中央値は開眼時の値に支配されます）。
+
 ### 注視点検出 — `js/fixation.js`
 
 速度しきい値（I-VT）でサッケードと注視に分割します。多くの用途で欲しいのは毎フレームの座標ではなく
@@ -228,7 +247,7 @@ test/                   ユニットテスト + ヘッドレスブラウザの�
 ## テスト
 
 ```bash
-npm test          # 30 件。線形代数・フィルタ・特徴量・注視点検出・学習/予測の通し
+npm test          # 33 件。線形代数・フィルタ・特徴量・注視点検出・学習/予測の通し
 npm run setup     # 先に資産をローカル化（e2e はネットワーク不要になる）
 npm start &
 npm run test:e2e  # ヘッドレス Chromium で実アプリを起動して検証

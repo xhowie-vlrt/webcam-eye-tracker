@@ -64,6 +64,14 @@ body {
   border-color: var(--muted);
 }
 
+/* The head has left the range the model was calibrated on. */
+.gaze-dot.degraded {
+  border-color: var(--warn);
+  border-style: dashed;
+  background: rgba(251, 191, 36, 0.16);
+  box-shadow: 0 0 18px rgba(251, 191, 36, 0.35);
+}
+
 /* ---------- chrome ---------- */
 
 .topbar {

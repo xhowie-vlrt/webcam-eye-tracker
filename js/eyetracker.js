@@ -17,7 +17,9 @@ import { FixationDetector } from './fixation.js';
 import { CalibrationOverlay, serpentine } from './calibration-ui.js';
 import { gridPoints, validationPoints, shuffle } from './points.js';
 
-const BLINK_EAR = 0.17;
+const BLINK_EAR = 0.17; // fallback until calibration learns the user's own
+const BLINK_EAR_RATIO = 0.6; // of the median open-eye ratio
+const BLINK_EAR_RANGE = [0.1, 0.25];
 const DRIFT_WEIGHT = 0.25; // a click is a weaker signal than a calibration point
 const DRIFT_REFIT_EVERY = 4;
 
@@ -50,6 +52,8 @@ export class EyeTracker {
     this.calibrating = false;
     this._driftPending = 0;
     this._driftGroup = 0;
+    this._calEars = [];
+    this._poseOk = true;
 
     this.setSmoothing(smoothing);
     this.tracker.onResult = (r) => this._onFrame(r);
@@ -100,6 +104,15 @@ export class EyeTracker {
     return this.model.ready;
   }
 
+  /**
+   * Eye-aspect ratio below which we call it a blink. Learned per user during
+   * calibration - a fixed constant misfires badly on narrow eyes or a camera
+   * mounted well above or below eye level.
+   */
+  get blinkThreshold() {
+    return this.model.blinkThreshold ?? BLINK_EAR;
+  }
+
   get fps() {
     return this.tracker.fps;
   }
@@ -107,7 +120,7 @@ export class EyeTracker {
   // -- events ---------------------------------------------------------------
 
   /**
-   * @param {'gaze'|'fixation'|'face'|'status'|'error'} event
+   * @param {'gaze'|'fixation'|'face'|'quality'|'status'|'error'} event
    * @returns {() => void} unsubscribe
    */
   on(event, handler) {
@@ -137,8 +150,9 @@ export class EyeTracker {
 
     const aspect = (this.video.videoWidth || 16) / (this.video.videoHeight || 9);
     const f = buildFeatures(landmarks, aspect);
-    this.blinking = f.ear < BLINK_EAR;
+    this.blinking = f.ear < this.blinkThreshold;
     this.latest = { vec: f.vec, ear: f.ear, landmarks, timestamp };
+    if (this.calibrating) this._calEars.push(f.ear);
     this._emit('face', {
       found: true,
       landmarks,
@@ -158,6 +172,15 @@ export class EyeTracker {
       return;
     }
 
+    // Flag when the head has wandered outside the range the model was fitted
+    // on: past that point the prediction is extrapolation, and the honest
+    // thing is to say so rather than keep drawing a confident dot.
+    const quality = this.model.poseQuality(f.vec);
+    if (quality.ok !== this._poseOk) {
+      this._poseOk = quality.ok;
+      this._emit('quality', quality);
+    }
+
     const raw = this.model.predict(f.vec);
     const s = this.smoother.filter(raw.x, raw.y, timestamp / 1000);
     const x = clamp(s.x, 0, window.innerWidth);
@@ -172,6 +195,7 @@ export class EyeTracker {
       rawX: raw.x,
       rawY: raw.y,
       blink: false,
+      quality,
       fixation: this.fixations.current,
       timestamp,
     };
@@ -196,6 +220,7 @@ export class EyeTracker {
   async calibrate({ mode = 'click', cols = 3, rows = 3, pursuitRows = 4, speed = 420 } = {}) {
     if (!this.running) throw new Error('start() the tracker before calibrating');
     this.calibrating = true;
+    this._calEars = [];
     this._emit('status', { phase: 'calibrating', message: mode });
     try {
       const groups = [];
@@ -228,6 +253,7 @@ export class EyeTracker {
       });
 
       const report = this.model.fit();
+      this.model.blinkThreshold = learnBlinkThreshold(this._calEars);
       this.model.save();
       this.smoother.reset();
       this.fixations.reset();
@@ -339,6 +365,17 @@ export class EyeTracker {
   }
 }
 
+/**
+ * Blinks are brief, so the median eye-aspect ratio over a whole calibration
+ * is a good estimate of this user's open-eye value at this camera angle.
+ */
+function learnBlinkThreshold(ears) {
+  if (ears.length < 30) return null;
+  const sorted = [...ears].sort((a, b) => a - b);
+  const median = sorted[Math.floor(sorted.length / 2)];
+  return clamp(median * BLINK_EAR_RATIO, BLINK_EAR_RANGE[0], BLINK_EAR_RANGE[1]);
+}
+
 function createHiddenVideo() {
   const v = document.createElement('video');
   v.playsInline = true;
@@ -351,4 +388,4 @@ function createHiddenVideo() {
 
 const clamp = (v, lo, hi) => Math.min(hi, Math.max(lo, v));
 
-export { pixelsToDegrees, gridPoints, validationPoints, serpentine };
+export { pixelsToDegrees, gridPoints, validationPoints, serpentine, learnBlinkThreshold };

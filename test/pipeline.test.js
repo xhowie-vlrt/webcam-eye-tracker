@@ -8,6 +8,7 @@ import assert from 'node:assert/strict';
 
 import { buildFeatures, IDX } from '../js/features.js';
 import { GazeModel } from '../js/gaze.js';
+import { learnBlinkThreshold } from '../js/eyetracker.js';
 
 const SCREEN = { w: 1440, h: 900 };
 const ASPECT = 16 / 9;
@@ -227,4 +228,61 @@ test('cross-validation handles pursuit groups, where each sample has its own tar
   }
   const err = Math.hypot(sx / 30 - held.x, sy / 30 - held.y);
   assert.ok(err < 120, `interior prediction off by ${err.toFixed(1)} px`);
+});
+
+test('pose quality flags a head position the model never saw', () => {
+  const rand = rng(31);
+  const model = new GazeModel();
+  grid(3, 3).forEach((p, group) => {
+    for (let i = 0; i < 25; i++) {
+      // Calibrate with the head held roughly still.
+      const vec = buildFeatures(
+        synthFace({
+          gx: (p.x / SCREEN.w) * 2 - 1,
+          gy: (p.y / SCREEN.h) * 2 - 1,
+          yaw: (rand() - 0.5) * 0.1,
+          rand,
+        }),
+        ASPECT
+      ).vec;
+      model.addSample(vec, p.x, p.y, { group });
+    }
+  });
+  model.fit();
+
+  const inRange = buildFeatures(synthFace({ gx: 0, gy: 0, yaw: 0.02, rand }), ASPECT).vec;
+  assert.ok(model.poseQuality(inRange).ok, 'a calibrated pose passes');
+
+  // Turn the head hard - far outside anything seen during calibration.
+  const turned = buildFeatures(synthFace({ gx: 0, gy: 0, yaw: 1.2, rand }), ASPECT).vec;
+  const q = model.poseQuality(turned);
+  assert.equal(q.ok, false, `score=${q.score}`);
+  assert.ok(q.reason, 'it names which head feature drifted');
+});
+
+test('pose quality says nothing before a fit', () => {
+  const q = new GazeModel().poseQuality(new Array(24).fill(0));
+  assert.deepEqual(q, { ok: true, score: 0, reason: null });
+});
+
+test('the blink threshold adapts to the user, within sane bounds', () => {
+  const session = (open, blinkFraction) => {
+    const ears = [];
+    for (let i = 0; i < 600; i++) {
+      // Blinks are brief, so they should not move the median much.
+      ears.push(i % Math.round(1 / blinkFraction) === 0 ? 0.04 : open);
+    }
+    return learnBlinkThreshold(ears);
+  };
+
+  // Narrow eyes / a camera below eye level give a low open-eye ratio; the old
+  // fixed 0.17 would have called every frame a blink.
+  const narrow = session(0.22, 0.05);
+  assert.ok(narrow < 0.22 && narrow >= 0.1, `narrow=${narrow}`);
+
+  const wide = session(0.5, 0.05);
+  assert.ok(wide > narrow, 'a wider eye gets a higher threshold');
+  assert.ok(wide <= 0.25, `clamped to a sane maximum, got ${wide}`);
+
+  assert.equal(learnBlinkThreshold([0.3, 0.3]), null, 'too few samples to trust');
 });
